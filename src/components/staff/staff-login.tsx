@@ -1,20 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { messageFor } from "@/lib/kwh/errors";
-import { ROLE_LABELS, login, logout, type StaffRole } from "@/lib/kwh/staff";
+import { ROLE_LABELS, login, type StaffRole } from "@/lib/kwh/staff";
 import { PasscodeForm } from "./passcode-form";
 import { useStaffSession } from "./use-staff-session";
 
 const ROLES: StaffRole[] = ["kitchen", "cashier", "admin"];
 
-export function homeFor(role: StaffRole): string | null {
+export function homeFor(role: StaffRole): string {
   if (role === "kitchen") return "/staff/kitchen";
   if (role === "cashier") return "/staff/cashier";
-  return null; // the admin screen arrives in a later phase
+  return "/staff/admin";
 }
 
 export function StaffLogin() {
@@ -33,11 +32,8 @@ export function StaffLogin() {
     try {
       const s = await login(role, passcode);
       if (!s.must_change) {
-        const home = homeFor(s.role);
-        if (home) {
-          router.replace(home);
-          return;
-        }
+        router.replace(homeFor(s.role));
+        return;
       }
       setVersion((v) => v + 1); // re-validate and show the next step
     } catch (e) {
@@ -68,45 +64,15 @@ export function StaffLogin() {
             currentLabel="Passcode sementara (yang tadi dipakai untuk masuk)"
             onDone={() => {
               setPasscode("");
-              const home = homeFor(s.role);
-              if (home) router.replace(home);
-              else setVersion((v) => v + 1);
+              router.replace(homeFor(s.role));
             }}
           />
         </div>
       );
     }
-    const home = homeFor(s.role);
-    if (home) {
-      // Already logged in (session kept for 12 hours): go straight to the screen.
-      router.replace(home);
-      return <div className={card}><p className="text-center text-muted-foreground">Membuka layar {ROLE_LABELS[s.role]}…</p></div>;
-    }
-    return (
-      <div className={card}>
-        <h1 className="text-2xl font-extrabold">Masuk sebagai {ROLE_LABELS[s.role]}</h1>
-        <p className="mt-2 text-muted-foreground">Layar {ROLE_LABELS[s.role]} dibuat di fase berikutnya.</p>
-        <div className="mt-5 flex flex-col gap-3">
-          {s.role === "admin" && (
-            <>
-              <Link href="/staff/kitchen" className="flex min-h-14 items-center justify-center rounded-xl border font-semibold">
-                Buka layar Dapur
-              </Link>
-              <Link href="/staff/cashier" className="flex min-h-14 items-center justify-center rounded-xl border font-semibold">
-                Buka layar Kasir
-              </Link>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={async () => { await logout(); setVersion((v) => v + 1); }}
-            className="min-h-14 rounded-xl bg-secondary font-semibold"
-          >
-            Keluar
-          </button>
-        </div>
-      </div>
-    );
+    // Already logged in (session kept for 12 hours): go straight to the screen.
+    router.replace(homeFor(s.role));
+    return <div className={card}><p className="text-center text-muted-foreground">Membuka layar {ROLE_LABELS[s.role]}…</p></div>;
   }
 
   return (

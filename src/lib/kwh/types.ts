@@ -11,6 +11,21 @@ export interface ActiveEvent {
   id: string;
   name: string;
   status: string;
+  accepting_orders: boolean;
+}
+
+/** Only statuses: what the live ticket polls (needs the order's secret id). */
+export interface TicketStatus {
+  queue_number: string;
+  payment_status: PaymentStatus;
+  production_status: ProductionStatus;
+}
+
+/** Public pickup screen: queue numbers only. */
+export interface PickupBoardData {
+  event_name: string;
+  preparing: string[];
+  ready: string[];
 }
 
 export interface Product {

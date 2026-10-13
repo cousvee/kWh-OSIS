@@ -24,6 +24,7 @@ import {
   type Product,
   type Ticket,
 } from "@/lib/kwh/types";
+import { unlockAudio } from "@/lib/kwh/sound";
 import { QueueTicket } from "./queue-ticket";
 
 const POLL_MS = 5000;
@@ -138,6 +139,7 @@ export function CustomerOrder() {
 
   async function submit() {
     if (submitLock.current) return; // double-click / double-tap guard
+    unlockAudio(); // this tap lets the ticket play a "ready" sound later
     const cleanName = name.trim();
     const cleanClass = klass.trim();
 
@@ -189,7 +191,7 @@ export function CustomerOrder() {
       // A definite rejection means the next attempt is a new checkout (new key).
       // Network/server uncertainty keeps the key so a retry can never double-order.
       if (code !== "NETWORK" && code !== "UNKNOWN") clearPending();
-      if (code === "PRODUCT_UNAVAILABLE" || code === "PRODUCT_NOT_FOUND" || code === "NO_ACTIVE_EVENT" || code === "EVENT_CLOSED") {
+      if (code === "PRODUCT_UNAVAILABLE" || code === "PRODUCT_NOT_FOUND" || code === "NO_ACTIVE_EVENT" || code === "EVENT_CLOSED" || code === "ORDERS_PAUSED") {
         void refresh();
       }
     } finally {
@@ -210,6 +212,7 @@ export function CustomerOrder() {
   }
 
   const noEvent = event === null;
+  const paused = !!event && event.accepting_orders === false;
   const loading = event === undefined && !loadError;
 
   return (
@@ -229,6 +232,12 @@ export function CustomerOrder() {
               Coba lagi
             </button>
           )}
+        </div>
+      )}
+
+      {paused && (
+        <div role="status" className="mb-4 rounded-2xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 font-semibold">
+          Pemesanan sedang ditutup sementara. Menu tetap bisa dilihat; silakan coba lagi sebentar lagi.
         </div>
       )}
 
@@ -394,10 +403,10 @@ export function CustomerOrder() {
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={submitting || loading || noEvent}
+              disabled={submitting || loading || noEvent || paused}
               className="mt-5 min-h-16 w-full rounded-2xl bg-primary px-6 text-xl font-extrabold text-primary-foreground active:scale-[0.98] disabled:opacity-50"
             >
-              {submitting ? "MEMPROSES…" : "BUAT PESANAN"}
+              {submitting ? "MEMPROSES…" : paused ? "PEMESANAN DITUTUP" : "BUAT PESANAN"}
             </button>
           </aside>
         </div>

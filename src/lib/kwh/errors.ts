@@ -16,6 +16,9 @@ export class KwhError extends Error {
 
 const MESSAGES: Record<string, string> = {
   NO_ACTIVE_EVENT: "Belum ada acara yang sedang berlangsung. Silakan hubungi panitia.",
+  ORDERS_PAUSED: "Pemesanan sedang ditutup sementara. Silakan coba lagi sebentar lagi.",
+  RATE_LIMITED: "Terlalu banyak pesanan dari jaringan ini. Tunggu sebentar lalu coba lagi.",
+  TOO_MANY_OPEN_ORDERS: "Anda masih punya banyak pesanan yang belum selesai. Selesaikan dulu pesanan sebelumnya.",
   EVENT_CLOSED: "Acara sudah ditutup. Pesanan tidak bisa dibuat lagi.",
   EMPTY_CART: "Keranjang masih kosong. Pilih menu terlebih dahulu.",
   INVALID_CUSTOMER_NAME: "Nama wajib diisi (maksimal 60 karakter).",

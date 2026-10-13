@@ -5,12 +5,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { KwhError, messageFor } from "@/lib/kwh/errors";
+import { callRpc } from "@/lib/kwh/rpc";
 import { staffRpc } from "@/lib/kwh/staff";
-import { PRODUCTION_LABELS, type ProductionStatus } from "@/lib/kwh/types";
+import { armAudioOnFirstGesture, isAudioReady, playNewOrder, unlockAudio } from "@/lib/kwh/sound";
+import { PRODUCTION_LABELS, type Product, type ProductionStatus } from "@/lib/kwh/types";
 import { StaffShell } from "./staff-shell";
 import { useStaffSession } from "./use-staff-session";
 
 const POLL_MS = 3000;
+// Orders that wait longer than this (minutes since ordered) are coloured.
+const OVERDUE_AMBER_MIN = 8;
+const OVERDUE_RED_MIN = 15;
+const NEW_HIGHLIGHT_MS = 8000;
 
 interface KitchenItem {
   product_name: string;
@@ -59,17 +65,43 @@ export function KitchenBoard() {
   const [reason, setReason] = useState("");
   const [cancelError, setCancelError] = useState<string | null>(null);
 
+  const [menu, setMenu] = useState<Product[] | null>(null);
+  const [habisFor, setHabisFor] = useState<Product | null>(null);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [soundReady, setSoundReady] = useState(false);
+  const knownIds = useRef<Set<string> | null>(null);
+
   const ready = state.status === "ok" && !state.session.must_change;
 
   const load = useCallback(async () => {
     try {
-      const [o, s] = await Promise.all([
+      const [o, s, m] = await Promise.all([
         staffRpc<KitchenOrder[]>("list_kitchen_orders"),
         staffRpc<Summary>("get_production_summary"),
+        callRpc<Product[]>("get_menu"),
       ]);
       setOrders(o);
       setSummary(s);
+      setMenu(m);
       setError(null);
+
+      // New-order alert: anything not seen before (never on the very first load).
+      if (knownIds.current !== null) {
+        const fresh = o.filter((x) => !knownIds.current!.has(x.id)).map((x) => x.id);
+        if (fresh.length > 0) {
+          playNewOrder();
+          setNewIds((cur) => new Set([...cur, ...fresh]));
+          window.setTimeout(() => {
+            setNewIds((cur) => {
+              const c = new Set(cur);
+              fresh.forEach((id) => c.delete(id));
+              return c;
+            });
+          }, NEW_HIGHLIGHT_MS);
+        }
+      }
+      knownIds.current = new Set(o.map((x) => x.id));
+      setSoundReady(isAudioReady());
     } catch (e) {
       if (e instanceof KwhError && (e.code === "SESSION_INVALID" || e.code === "SESSION_EXPIRED")) return;
       setError(messageFor(e));
@@ -79,6 +111,10 @@ export function KitchenBoard() {
   useEffect(() => {
     if (state.status === "anon") router.replace("/staff");
   }, [state.status, router]);
+
+  useEffect(() => {
+    armAudioOnFirstGesture();
+  }, []);
 
   useEffect(() => {
     if (!ready) return;
@@ -107,6 +143,22 @@ export function KitchenBoard() {
         delete c[order.id];
         return c;
       });
+      await load();
+    }
+  }
+
+  async function setAvailability(p: Product, available: boolean) {
+    const lockKey = `product-${p.id}`;
+    if (locks.current.has(lockKey)) return;
+    locks.current.add(lockKey);
+    try {
+      await staffRpc("set_product_availability", { p_product_id: p.id, p_available: available });
+      setError(null);
+    } catch (e) {
+      setError(messageFor(e));
+    } finally {
+      locks.current.delete(lockKey);
+      setHabisFor(null);
       await load();
     }
   }
@@ -173,6 +225,45 @@ export function KitchenBoard() {
         )}
       </section>
 
+      {/* Stock: kitchen decides when a menu item is HABIS (portions vary). */}
+      <section aria-label="Stok menu" className="mb-4 rounded-2xl border bg-card p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-extrabold">Stok Menu</h2>
+          {!soundReady && (
+            <button
+              type="button"
+              onClick={() => { unlockAudio(); setSoundReady(true); playNewOrder(); }}
+              className="min-h-10 rounded-xl border px-4 text-sm font-semibold"
+            >
+              🔔 Aktifkan suara pesanan baru
+            </button>
+          )}
+        </div>
+        {menu === null ? (
+          <p className="text-muted-foreground">Memuat menu…</p>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {menu.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  aria-label={p.available ? `Tandai ${p.name} habis` : `Tandai ${p.name} ada lagi`}
+                  onClick={() => (p.available ? setHabisFor(p) : void setAvailability(p, true))}
+                  className={cn(
+                    "min-h-12 rounded-xl border px-4 text-base font-semibold active:scale-95",
+                    p.available ? "bg-card" : "border-destructive bg-destructive text-white",
+                  )}
+                >
+                  {p.name}
+                  {!p.available && <span className="ml-2 font-extrabold">HABIS</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">Ketuk menu untuk menandai HABIS. Ketuk lagi untuk menandai ADA.</p>
+      </section>
+
       {orders === null ? (
         <p className="py-10 text-center text-muted-foreground">Memuat pesanan…</p>
       ) : (
@@ -186,13 +277,33 @@ export function KitchenBoard() {
                   <span className="rounded-full bg-secondary px-3 text-base tabular-nums">{list.length}</span>
                 </h2>
                 <ul className="space-y-3">
-                  {list.map((o) => (
-                    <li key={o.id} data-testid={`order-${o.queue_number}`} className="rounded-2xl border bg-card p-4">
+                  {list.map((o) => {
+                    const waited = now ? Math.floor((now - new Date(o.created_at).getTime()) / 60000) : 0;
+                    const late = col.status === "ready" ? "" : waited >= OVERDUE_RED_MIN ? "red" : waited >= OVERDUE_AMBER_MIN ? "amber" : "";
+                    return (
+                    <li
+                      key={o.id}
+                      data-testid={`order-${o.queue_number}`}
+                      data-late={late || undefined}
+                      className={cn(
+                        "rounded-2xl border-2 bg-card p-4",
+                        late === "red" && "border-red-500 bg-red-500/10",
+                        late === "amber" && "border-amber-500 bg-amber-500/10",
+                        newIds.has(o.id) && "ring-4 ring-blue-500",
+                      )}
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="font-mono text-5xl font-extrabold leading-none">{o.queue_number}</p>
+                        <p className="font-mono text-5xl font-extrabold leading-none">
+                          {o.queue_number}
+                          {newIds.has(o.id) && (
+                            <span className="ml-2 align-middle rounded-full bg-blue-600 px-2 py-0.5 font-sans text-xs font-bold text-white">BARU</span>
+                          )}
+                        </p>
                         <div className="text-right text-sm text-muted-foreground">
                           <p>{clock(o.created_at)}</p>
-                          <p>{ago(o.created_at, now)}</p>
+                          <p className={cn(late === "red" && "font-extrabold text-red-600", late === "amber" && "font-bold text-amber-600")}>
+                            {ago(o.created_at, now)}
+                          </p>
                         </div>
                       </div>
                       <p className="mt-2 text-lg font-semibold">
@@ -226,12 +337,32 @@ export function KitchenBoard() {
                         )}
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                   {list.length === 0 && <li className="rounded-2xl border border-dashed p-6 text-center text-muted-foreground">Kosong</li>}
                 </ul>
               </section>
             );
           })}
+        </div>
+      )}
+
+      {habisFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Tandai habis">
+          <div className="w-full max-w-md rounded-3xl bg-card p-6">
+            <h2 className="text-xl font-extrabold">Tandai {habisFor.name} HABIS?</h2>
+            <p className="mb-4 mt-2 text-sm text-muted-foreground">
+              Pelanggan tidak bisa memesannya lagi. Pesanan yang sudah masuk tidak dibatalkan otomatis.
+            </p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setHabisFor(null)} className="min-h-14 flex-1 rounded-xl border font-semibold">
+                Kembali
+              </button>
+              <button type="button" onClick={() => void setAvailability(habisFor, false)} className="min-h-14 flex-1 rounded-xl bg-destructive font-extrabold text-white">
+                TANDAI HABIS
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

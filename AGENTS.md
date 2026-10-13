@@ -1,9 +1,23 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Project Instructions
 
-## This is NOT the Next.js you know
+## Workflow
+- Inspect relevant files before making changes.
+- Explain the plan briefly before complex changes.
+- Make the smallest change that solves the task.
+- Do not refactor unrelated code.
+- Reuse existing libraries and patterns where practical.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+## Context Efficiency
+- Search for relevant code instead of reading the entire repository.
+- Avoid repeating information already established.
+- Keep explanations and terminal output concise.
+- Ask before expanding the scope of the task.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+## Quality
+- Run relevant tests after changes.
+- Check for regressions and review the final diff.
+- Never claim a test passed unless it actually ran successfully.
+- Never expose secrets or overwrite unrelated user work.
 
-<!-- END:nextjs-agent-rules -->
+## Reporting
+Summarize the changes, tests performed, and remaining issues.
